@@ -10,16 +10,17 @@ class EbaySpider(scrapy.Spider):
 	name = "ebay"
 	#allowed_domains = ["ebay.com","ebay.co.uk"]
 	allowed_domains = ["ebay.com"]
-	start_urls = ["https://www.ebay.com","https://www.ebay.co.uk"]
-	#start_urls = ["https://www.ebay.co.uk"]
+	start_urls = ['https://www.ebay.com']
+	# start_urls = ["https://www.ebay.com"],"https://www.ebay.co.uk"]
 	# Allow a custom parameter (-a flag in the scrapy command)
-	def __init__(self, search="Tshirt,laced",pages=4,size='s'):
+	def __init__(self, search="Tshirt,laced",pages=4,size='s',completed=False):
 		# so first of all split serch based on comma
 		self.search_list = search.split(',')
 		self.pages=int(pages)
 		self.size=size
 		# read universal prod_ids and pass to tracker
 		self.prod_urls_tracker = self.get_universal_ids()#self.read_univeral_prod_ids()
+		self.completed=completed
 		print('total universal ids: ',len(self.prod_urls_tracker))
 	def parse(self, response):
 		# Extrach the trksid to build a search request	
@@ -29,8 +30,11 @@ class EbaySpider(scrapy.Spider):
 		for search_string in self.search_list:
 			print('processing string: ',search_string)
 			for x in range(1,self.pages+1):
-				yield scrapy.Request("http://www.ebay.com/sch/i.html?_from=R40&_trksid=" + trksid +
-									"&_nkw=" + search_string.replace(' ','+').replace('_','+') + "&_ipg=200&_pgn="+str(x), 
+				url = "http://www.ebay.com/sch/i.html?_from=R40&_trksid=" + trksid + \
+					"&_nkw=" + search_string.replace(' ','+').replace('_','+') + "&_ipg=200&_pgn="+str(x)
+				if self.completed:
+					url += "&LH_Complete=1"
+				yield scrapy.Request(url, 
 									callback=self.parse_link)
 
 	# Parse the search results
@@ -67,8 +71,6 @@ class EbaySpider(scrapy.Spider):
 				# If this get a None result
 				if name == None:
 					name = "ERROR"
-
-				price = product.xpath('.//*[@class="s-item__price"]/text()').extract_first()
 				status = product.xpath('.//*[@class="SECONDARY_INFO"]/text()').extract_first()
 				seller_level = product.xpath('.//*[@class="s-item__etrs-text"]/text()').extract_first()
 				location = product.xpath('.//*[@class="s-item__location s-item__itemLocation"]/text()').extract_first()
@@ -82,6 +84,11 @@ class EbaySpider(scrapy.Spider):
 				if stars_text: stars = stars_text[:3]
 				ratings_text = product.xpath('.//*[@aria-hidden="true"]/text()').extract_first()
 				if ratings_text: ratings = ratings_text.split(' ')[0]
+
+				if not self.completed or stars_text == "End":
+					price = product.xpath('.//*[@class="s-item__price"]/text()').extract_first()
+				else:
+					price = product.xpath('.//*[@class="s-item__price"]//*[@class="POSITIVE"]/text()').extract_first()
 
 				summary_data = {
 								"Name":name,
@@ -320,13 +327,18 @@ class EbaySpider(scrapy.Spider):
 					all_csvs.append(f)
 		# iterate thorugh each csv file and build list of universal keys out of it
 		for csv_file in all_csvs:
+			cur_ids_len = len(ids)
+			# print(f"cur_file: {csv_file}")
+			# print(f"cur_ids_len: {len(ids)}")
 			try:
 				df=pd.read_csv(csv_file)
 				for id in list(df['prod_id']):
 						ids.append(int(id))
+				print(f"found {len(len(ids) - cur_ids_len)} entries in {csv_file}")
 			except:
 				print(csv_file,' is empty')
 				pass
+		print(f"found {len(ids)} ids")
 			# df=pd.read_csv(csv_file)
 			# for id in list(df['prod_id']):
 			# 		ids.append(int(id))
